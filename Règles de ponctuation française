@@ -1,0 +1,17 @@
+<?php
+add_action('wp_footer',function(){
+	?>
+<script id="maltmann-french-punctuation-script">
+(function($){
+	$('body :not(script,style)').contents().filter(function() {
+		return this.nodeType === 3; // text nodes
+	}).replaceWith(function() {
+		return this.nodeValue.replace(/ +([\:\;\!\?])/g, ' $1');
+	});
+})(jQuery);
+</script>
+
+<?php
+});
+
+
