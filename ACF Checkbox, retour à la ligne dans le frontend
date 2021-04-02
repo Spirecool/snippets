@@ -1,0 +1,18 @@
+//Code to display ACF checkboxes as list
+add_shortcode('acfBr', 'brListFunction');
+function brListFunction($atts, $content) {
+	extract(shortcode_atts(array("id"=>'','field'=>''),$atts));
+	if($field){
+		if($id=''){
+			global $post;
+			$id=$post->ID;
+		}
+		$content=get_field($field,$id);
+		return implode('<br>',$content);
+	}
+    return '';
+}
+
+
+//Then use the short code format to display the appropriate value:
+[acfBr field="FIELD_NAME"]
