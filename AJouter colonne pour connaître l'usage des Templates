@@ -1,0 +1,260 @@
+/*
+Plugin Name:  MA Oxygen Template Usage
+Description:  Adds a new column "Template Usage" in Oxygen Templates and Block Library lists to show usage.
+Author:       <a href="https://www.altmann.de/">Matthias Altmann</a>
+Version:      1.0.4
+Plugin URI:   https://www.altmann.de/en/blog-en/blog-en/code-snippet-oxygen-template-usage/
+Description:  en: https://www.altmann.de/en/blog-en/code-snippet-oxygen-template-usage/
+              de: https://www.altmann.de/blog/code-snippet-oxygen-template-verwendung/
+Copyright:    © 2020-2021, Matthias Altmann
+
+Version History:
+Date		Version		Description
+---------------------------------------------------------------------------------------------------------------------
+2020-09-12	1.0.0		Initial Release 
+2020-12-14	1.0.1		New Features:
+						- Oxygen Templates list: For Re-usable Parts, show usage (as single) in templates/pages
+						- Oxygen Block Library list: Show usage in pages
+2021-01-10	1.0.2		Bug Fix: 
+						- Correct detection of assignment "All Post Types / Categories / Tags / Authors" 
+						  (Thanks to Wolfgang Rotschek for reporting!)
+2021-01-10	1.0.3		Enhancement:
+						- Detect "All [Custom Taxonomies]" with proper naming
+2021-01-22	1.0.4		Fix:
+						- Corrected typo 
+						  (Thanks to Adrien Robert for reporting!)
+*/
+
+
+//===================================================================================================================
+// Utility functions
+//===================================================================================================================
+//-------------------------------------------------------------------------------------------------------------------
+// Translates post type slugs (page, post, ...) to localized names (Seiten, Beiträge, ...)
+function _maltmann_oxyuse_parse_oxy_post_types($post_types) {
+	$retval = [];
+	if (is_array($post_types) && count($post_types)) {
+		foreach($post_types as $post_type) {
+			switch ($post_type) {
+				case 'all_posttypes': 	$retval[] = '<i>All Post Types</i>'; break;
+				default:				$post_type_object = get_post_type_object($post_type);if ($post_type_object) {$retval[] = $post_type_object->label;}
+			}
+		}
+	}
+	return $retval;
+}
+//-------------------------------------------------------------------------------------------------------------------
+// Retrieves term names from ID list or Oxygen names,values array 
+function _maltmann_oxyuse_parse_oxy_taxonomies_with_group($taxonomies) {
+	$retval = '';
+	if (is_array($taxonomies)) {
+		$apply_tax = [];
+		foreach ($taxonomies['names'] as $idx => $name) {
+			if ($name=='tag') {$name = 'post_tag';}
+			$tax_obj = get_taxonomy($name);
+			if (!$tax_obj) {continue;}
+			$tax_lab = $tax_obj->labels->singular_name;
+			$term_id = $taxonomies['values'][$idx];
+			$term = get_term($term_id, $name);
+			if ($term) {
+				if (!array_key_exists($name,$apply_tax)) {
+					$apply_tax[$name] = (object)['slug'=>$name,'name'=>$tax_lab,'terms'=>[]];
+				}
+				$apply_tax[$name]->terms[] = $term->name;
+			}
+		}
+		foreach (array_keys($apply_tax) as $tax_slug) {
+			$tax = $apply_tax[$tax_slug];
+			$tax_title = $tax->name;
+			if (!in_array($tax_slug,['post_tag','category'])) {$tax_title .= ' ('.$tax_slug.')';}
+			$retval .= '<i>'.$tax_title.': '.join(', ',$tax->terms).'</i>'; 
+		}
+	}
+	return $retval;
+}
+//------------------------------------------------------------------------------
+// Retrieves term names from ID list or Oxygen names,values array 
+function _maltmann_oxyuse_parse_oxy_taxonomies($taxonomies) {
+	$retval = [];
+	if (is_array($taxonomies) && count($taxonomies)) {
+		if (array_key_exists('values',$taxonomies)) {$taxonomies = $taxonomies['values'];}
+		foreach ($taxonomies as $tax_id) {
+			$tax_name = null;
+			if 		($tax_id == 'all_categories') 	{$tax_name = '<i>All Categories</i>';}
+			elseif 	($tax_id == 'all_tags')			{$tax_name = '<i>All Tags</i>';}
+			elseif	(preg_match('/^all_(.*)$/', $tax_id, $matches)) {
+				$tax_slug = $matches[1];
+				$tax_object = get_taxonomy($tax_slug);
+				if ($tax_object) {
+					$tax_labels = get_taxonomy_labels($tax_object);
+					if ($tax_labels) {
+						$tax_name = '<i>All '.$tax_labels->name.'</i>';
+					} 
+				} 
+			}
+			if (!$tax_name) {
+				$term = get_term($tax_id); 
+				if ($term) {$tax_name = $term->name;}
+			}
+			if (!$tax_name) {
+				// final fallback
+				$tax_name = '<i>'.$tax_slug.'</i>';
+			}
+			$retval[] = $tax_name;
+		}
+	}
+	return $retval;
+}
+//------------------------------------------------------------------------------
+// retrieves author IDs to names
+function _maltmann_oxyuse_parse_oxy_authors($authors) {
+	$retval = [];
+	if (is_array($authors) && count($authors)) {
+		foreach ($authors as $user_id) {
+			if ($user_id == 'all_authors') {$retval[] = '<i>All Authors</i>'; continue;}
+			$user = get_userdata($user_id);
+			if ($user) {$retval[] = $user->user_login;}
+		}
+	}
+	return $retval;
+}
+
+
+//===================================================================================================================
+// Oxygen Templates / Re-usable Parts
+//===================================================================================================================
+add_action( 'after_setup_theme', function() {
+	// add column title
+	add_filter('manage_ct_template_posts_columns', function($columns){;
+		$columns['maltmann_oxy_tpl_apply']  = 'Template Usage';
+		return $columns;
+	});
+	// add column content
+	add_action( 'manage_ct_template_posts_custom_column', function($column_name, $post_id) {
+		if ($column_name != 'maltmann_oxy_tpl_apply') return;
+
+		global $post;
+		// get_post_meta does not fire a db query since post meta is still cached from listing
+		$meta = get_post_meta($post->ID);
+
+		if (isset($meta['ct_template_type']) && $meta['ct_template_type'][0] == 'reusable_part') {
+			// REUSABLE PART
+			// search database for references to this reusable part
+			global $wpdb;
+			$stmt = sprintf('SELECT * FROM %spostmeta WHERE meta_key="ct_builder_shortcodes" AND meta_value LIKE "%%ct_options=\'{\"view_id\":%d,%%"', $wpdb->prefix, $post->ID);
+			$references = $wpdb->get_results($stmt, OBJECT );
+			$refs = [];
+			foreach ($references as $reference) {
+				$reference_post = get_post($reference->post_id);
+				$refs[] = sprintf('<a href="%s">%s</a>',get_edit_post_link($reference_post->ID), $reference_post->post_title);
+			}
+			if (count($refs)) {
+				echo '<b>Used in:</b><br/>'.implode(', ', $refs);
+			}
+		} else {
+			// TEMPLATE
+			// --- Singular --------------------------------------------------------
+			// collect settings for Oxygen's Sigular section
+			$apply= [];
+			// Singular Post Types
+			$post_types = [];
+			if (@$meta['ct_template_single_all'][0] == 'true') 		{$post_types[] = '<i>All</i>';}
+			$specific_post_types = maybe_unserialize(@$meta['ct_template_post_types'][0]);
+			if (is_array($specific_post_types) && count($specific_post_types)) {
+				$post_types = array_merge($post_types,_maltmann_oxyuse_parse_oxy_post_types($specific_post_types));
+			}
+			if (is_array($post_types) && count($post_types)) {
+				$apply[] = 'Post Types: ' . join(', ',$post_types);
+			}
+			// Singular Taxonomies
+			if (@$meta['ct_use_template_taxonomies'][0]=='true') {
+				$taxonomies = maybe_unserialize(@$meta['ct_template_taxonomies'][0]);
+				$taxonomies =  _maltmann_oxyuse_parse_oxy_taxonomies($taxonomies);
+				if (is_array($taxonomies) && count($taxonomies)) {
+					$apply[] = 'Taxonomies: ' . join(', ',$taxonomies);
+				}
+			}
+			// Singular Parents
+			if (@$meta['ct_template_apply_if_post_of_parents'][0]=='true') {
+				$parents = maybe_unserialize(@$meta['ct_template_post_of_parents'][0]);
+				$apply[] = 'Parent IDs: '.join(', ',$parents);
+			}
+			// Final output
+			if (count($apply)) {echo '<b>Singular:</b><br/>'.join('<br/>',$apply).'<br/>';}
+
+
+			// --- Archive ---------------------------------------------------------
+			// collect settings for Oxygen's Archive section
+			$apply = [];
+			// All Archives
+			if (@$meta['ct_template_all_archives'][0]=='true') 		{$apply[] = '<i>All</i>';}
+
+			// Archive Taxonomies
+			if (@$meta['ct_template_apply_if_archive_among_taxonomies'][0]=='true') {
+				$taxonomies = maybe_unserialize(@$meta['ct_template_archive_among_taxonomies'][0]);
+				$taxonomies =  _maltmann_oxyuse_parse_oxy_taxonomies($taxonomies);
+				if (is_array($taxonomies) && count($taxonomies)) {
+					$apply[] = 'Taxonomies: ' . join(', ',$taxonomies);
+				}
+			}
+			// Archive Post Types
+			if (@$meta['ct_template_apply_if_archive_among_cpt'][0]=='true') {
+				$post_types = maybe_unserialize(@$meta['ct_template_archive_post_types'][0]);
+				$post_types = _maltmann_oxyuse_parse_oxy_post_types($post_types);
+				if (is_array($post_types) && count($post_types)) {
+					$apply[] = 'Post Types: ' . join(', ',$post_types);
+				}
+			}
+			// Archive Authors
+			if (@$meta['ct_template_apply_if_archive_among_authors'][0]=='true') {
+				$authors = maybe_unserialize(@$meta['ct_template_authors_archives'][0]);
+				$authors = _maltmann_oxyuse_parse_oxy_authors($authors);
+				if (is_array($authors) && count($authors)) {
+					$apply[] = 'Authors: ' . join(', ',$authors);
+				}
+			}
+			// Archive Date
+			if (@$meta['ct_template_date_archive'][0] == 'true') 	{$apply[] = 'Date Archive';}
+			// Final output
+			if (count($apply)) {echo '<b>Archive:</b><br/>'.join('<br/>',$apply).'<br/>';}
+
+
+			// --- Others ----------------------------------------------------------
+			// collect settings for Oxygen's Other section
+			$apply = [];
+			if (@$meta['ct_template_front_page'][0] == 'true') 		{$apply[] = 'Front Page';}
+			if (@$meta['ct_template_blog_posts'][0] == 'true') 		{$apply[] = 'Blog Posts Index';}
+			if (@$meta['ct_template_search_page'][0] == 'true') 	{$apply[] = 'Search Page';}
+			if (@$meta['ct_template_404_page'][0] == 'true') 		{$apply[] = '404';}
+			if (@$meta['ct_template_inner_content'][0] == 'true') 	{$apply[] = 'Inner Content';}
+			if (@$meta['ct_template_index'][0] == 'true') 			{$apply[] = '<i>Catch All</i>';}
+			// Final output
+			if (count($apply)) {echo '<b>Others:</b><br/>' . join(', ',$apply).'<br/>';}
+		}
+	}, 10, 2 );
+});
+
+//===================================================================================================================
+// Oxygen Gutenberg Blocks
+//===================================================================================================================
+add_action( 'after_setup_theme', function() {
+	// add column title
+	add_filter('manage_oxy_user_library_posts_columns', function($columns){
+		$columns['maltmann_oxygen_gutenberg_blocks_reference']  = 'Template Usage';
+		return $columns;
+	});
+	// add column content
+	add_action( 'manage_oxy_user_library_posts_custom_column', function($column_name, $post_id){
+		if ($column_name != 'maltmann_oxygen_gutenberg_blocks_reference') return;
+		global $post;
+		global $wpdb;
+		$stmt = sprintf('SELECT * FROM %sposts WHERE post_type != "revision" AND post_content LIKE "%%<!-- wp:oxygen-vsb/ovsb-%s%%"', $wpdb->prefix, $post->post_name);
+		$references = $wpdb->get_results($stmt, OBJECT );
+		$refs = [];
+		foreach ($references as $reference) {
+			$refs[] = sprintf('<a href="%s">%s</a>',get_edit_post_link($reference->ID), $reference->post_title);
+		}
+		echo implode(', ', $refs);
+	}, 10, 2 );
+});
+
