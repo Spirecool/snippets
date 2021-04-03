@@ -1,0 +1,8 @@
+/**
+ * Modify admin footer text
+ */
+ 
+function modify_footer() {
+    echo 'Created by <a href="mailto:you@example.com">you</a>.';
+}
+add_filter( 'admin_footer_text', 'modify_footer' );
