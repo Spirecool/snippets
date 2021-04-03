@@ -1,0 +1,7 @@
+// Supprimer le logo WordPress de la barre d'administration
+
+add_action( 'admin_bar_menu', 'wpm_remove_wp_logo', 999 );
+
+function wpm_remove_wp_logo( $wp_admin_bar ) {
+  $wp_admin_bar->remove_node( 'wp-logo' );
+}
