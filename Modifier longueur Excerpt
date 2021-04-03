@@ -1,0 +1,8 @@
+/**
+ * Modify excerpt length
+ */
+ 
+function custom_excerpt_length( $length ) {
+    return 25; //ici on modifie la longueur à 25 mots (par défaut 55 mots)
+}
+add_filter( 'excerpt_length', 'custom_excerpt_length', 999 ); 
