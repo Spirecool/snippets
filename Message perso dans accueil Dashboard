@@ -1,0 +1,8 @@
+/* Afficher un message personnalisé sur la page de connexion à l'administration */
+
+add_filter('login_message', 'wpm_custom_login_message');
+
+function wpm_custom_login_message() {
+	$message = '<p class="message">Bienvenue sur la page d\'administration de votre site </p><br />';
+	return $message;
+}
